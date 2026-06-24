@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<title>Sistema NF Profissional</title>
+
+<!-- ✅ XLSX CORRETO -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<!-- ✅ FIREBASE CORRETO -->
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+<style>
+body { font-family:Arial; margin:0; background:#f4f6f9; }
+.menu { width:220px; height:100vh; position:fixed; background:#2c3e50; color:white; }
+.menu button { width:100%; padding:15px; border:none; background:none; color:white; cursor:pointer; }
+.menu button:hover { background:#1abc9c; }
+.conteudo { margin-left:220px; padding:20px; }
+input { padding:10px; margin:5px 0; width:100%; }
+button { padding:10px; background:#1abc9c; color:white; border:none; cursor:pointer; margin:5px; }
+table { width:100%; border-collapse:collapse; background:white; font-size:12px; }
+th, td { padding:6px; border:1px solid #ddd; white-space:nowrap; }
+
+.cancelada { background:#ffcccc; }
+.entrada { background:#fff3cd; }
+.recebidoOK { background:#d4edda !important; }
+.sapOK { background:#cce5ff !important; }
+</style>
+</head>
+
+<body>
+
+<div id="loginTela">
+<div style="background:#fff;padding:30px;border-radius:10px;">
+<h2>Login</h2>
+<input id="user" placeholder="Email">
+<input id="pass" type="password" placeholder="Senha">
+<button onclick="entrar()">Entrar</button>
+</div>
+</div>
+
+<div id="app" style="display:none;">
+
+<div class="menu">
+<button onclick="tela('notas')">Notas</button>
+<button onclick="tela('recebidas')">Notas Recebidas</button>
+<button onclick="tela('receb')">Recebimento</button>
+<button onclick="tela('sap')">SAP</button>
+<button onclick="tela('excel')">Importar Excel</button>
+<button onclick="logout()">Sair</button>
+</div>
+
+<div class="conteudo">
+
+<div id="notas">
+<h2>Notas Fiscais</h2>
+
+<input id="busca" onkeyup="filtrar()" placeholder="Buscar">
+
+<input id="chaveApagar" placeholder="Chave para apagar">
+<button onclick="apagarUma()">Apagar Nota</button>
+<button onclick="apagarTudo()">Apagar Todas</button>
+
+<table id="tabela"></table>
+</div>
+
+<div id="recebidas" style="display:none;">
+<h2>Notas Recebidas</h2>
+<table id="tabelaRecebidas"></table>
+</div>
+
+<div id="receb" style="display:none;">
+<h2>Recebimento</h2>
+<input id="chaveReceb" oninput="buscarReceb()">
+<input id="numReceb" readonly>
+<input id="razaoReceb" readonly>
+<input id="valorReceb" readonly>
+<input id="pedidoReceb" placeholder="Pedido">
+<button onclick="confirmarReceb()">Confirmar</button>
+<button onclick="estornarReceb()">Estornar</button>
+</div>
+
+<div id="sap" style="display:none;">
+<h2>SAP</h2>
+<input id="chaveSAP" oninput="buscarSAP()">
+<input id="numSAP" readonly>
+<input id="razaoSAP" readonly>
+<input id="valorSAP" readonly>
+<button onclick="confirmarSAP()">Confirmar</button>
+<button onclick="estornarSAP()">Estornar</button>
+</div>
+
+<div id="excel" style="display:none;">
+<h2>Importar Excel</h2>
+<input type="file" id="file">
+<button onclick="importar()">Importar</button>
+</div>
+
+</div>
+</div>
+
+<script>
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCs61LRkdUTqeFv_qJvTb5vc1h8qwI5yYQ",
+  authDomain: "sistemanf.firebaseapp.com",
+  databaseURL: "https://sistemanf-default-rtdb.firebaseio.com",
+  projectId: "sistemanf",
+  storageBucket: "sistemanf.firebasestorage.app",
+  messagingSenderId: "87632051913",
+  appId: "1:87632051913:web:438fc247703c2fb8915718"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+let notas = [];
+
+// ✅ FORMATAR DATA
+function formatarData(data){
+if(!data) return "";
+let d = new Date(data);
+if(!isNaN(data)){
+d = new Date((data - 25569) * 86400 * 1000);
+}
+return `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;
+}
+
+// SALVAR
+function autoSalvar(){
+let batch = db.batch();
+notas.forEach(n=>{
+batch.set(db.collection("notas").doc(n.chave), n);
+});
+batch.commit();
+}
+
+// LOGIN
+function entrar(){
+firebase.auth().signInWithEmailAndPassword(user.value, pass.value)
+.then(()=>{
+loginTela.style.display="none";
+app.style.display="block";
+carregar();
+})
+.catch(()=>alert("Login inválido"));
+}
+
+function logout(){
+firebase.auth().signOut().then(()=>{
+app.style.display="none";
+loginTela.style.display="flex";
+});
+}
+
+// TELAS
+function tela(t){
+["notas","recebidas","receb","sap","excel"].forEach(x=>{
+document.getElementById(x).style.display="none";
+});
+document.getElementById(t).style.display="block";
+}
+
+// CARREGAR
+function carregar(){
+db.collection("notas").get().then(s=>{
+notas = s.docs.map(d=>d.data());
+render();
+});
+}
+
+// ✅ IMPORTAR (CORRIGIDO)
+function importar(){
+let f=file.files[0];
+if(!f) return alert("Selecione arquivo");
+
+let r=new FileReader();
+r.onload=e=>{
+let wb=XLSX.read(e.target.result,{type:'binary'});
+
+// ✅ CORRETO
+let data = XLSX.utils.sheet_to_json(
+wb.Sheets[wb.SheetNames[0]],
+{header:1}
+);
+
+data.forEach((l,i)=>{
+if(i===0||!l[1]) return;
+
+let chave = String(l[1]).replace(/[^0-9]/g,"").trim();
+
+let existente = notas.find(n=>n.chave===chave);
+
+if(existente){
+    existente.uf=l[0];
+    existente.numero=l[2];
+    existente.emissao=l[4];
+    existente.razaoEmit=l[7];
+    existente.valor=l[15];
+    existente.situacao=l[13];
+    existente.tipo=l[14];
+    return;
+}
+
+// nova nota
+notas.push({
+uf:l[0],
+chave,
+numero:l[2],
+emissao:l[4],
+razaoEmit:l[7],
+valor:l[15],
+situacao:l[13],
+tipo:l[14],
+recebido:"NAO",
+sap:"NAO",
+statusTela:"notas"
+});
+
+});
+
+autoSalvar();
+render();
+alert("✅ Importação concluída");
+};
+
+r.readAsBinaryString(f);
+}
+
+// BUSCAR
+function buscar(c){
+return notas.find(n=>n.chave===c);
+}
+
+// ✅ RECEBIMENTO
+function confirmarReceb(){
+let n = buscar(chaveReceb.value);
+if(!n) return alert("Nota não encontrada");
+
+if(n.recebido==="SIM") return alert("Já recebida");
+
+if(!pedidoReceb.value){
+if(!confirm("Sem pedido, continuar?")) return;
+}
+
+let rep = notas.find(x=>x.pedido===pedidoReceb.value && x.chave!==n.chave);
+if(rep){
+if(!confirm(`Pedido já existe na nota ${rep.numero}, continuar?`)) return;
+}
+
+if(!confirm("Confirmar recebimento?")) return;
+
+n.recebido="SIM";
+n.statusTela="recebidas";
+n.pedido=pedidoReceb.value;
+
+autoSalvar();
+render();
+}
+
+// ✅ ESTORNAR RECEBIMENTO
+function estornarReceb(){
+let n=buscar(chaveReceb.value);
+if(!n) return;
+
+if(!confirm("Estornar recebimento?")) return;
+
+n.recebido="NAO";
+n.statusTela="notas";
+n.pedido="";
+
+autoSalvar();
+render();
+}
+
+// ✅ SAP
+function confirmarSAP(){
+let n=buscar(chaveSAP.value);
+if(!n) return;
+
+if(!confirm("Confirmar envio para SAP?")) return;
+
+n.sap="SIM";
+autoSalvar();
+render();
+}
+
+function estornarSAP(){
+let n=buscar(chaveSAP.value);
+if(!n) return;
+
+if(!confirm("Estornar SAP?")) return;
+
+n.sap="NAO";
+autoSalvar();
+render();
+}
+
+// BUSCAS
+function buscarReceb(){
+let n=buscar(chaveReceb.value);
+if(n){
+numReceb.value=n.numero||"";
+razaoReceb.value=n.razaoEmit||"";
+valorReceb.value=n.valor||"";
+}
+}
+
+function buscarSAP(){
+let n=buscar(chaveSAP.value);
+if(n){
+numSAP.value=n.numero||"";
+razaoSAP.value=n.razaoEmit||"";
+valorSAP.value=n.valor||"";
+}
+}
+
+// FILTRO
+function filtrar(){
+let t=busca.value.toLowerCase();
+document.querySelectorAll("#tabela tr").forEach((l,i)=>{
+if(i==0)return;
+l.style.display=l.innerText.toLowerCase().includes(t)?"":"none";
+});
+}
+
+// ✅ APAGAR UMA
+function apagarUma(){
+let chave = chaveApagar.value;
+if(!chave) return alert("Digite a chave");
+
+if(!confirm("Apagar esta nota?")) return;
+
+notas = notas.filter(n=>n.chave!==chave);
+db.collection("notas").doc(chave).delete();
+
+render();
+}
+
+// ✅ APAGAR TODAS
+function apagarTudo(){
+if(!confirm("Apagar TODAS as notas?")) return;
+
+db.collection("notas").get().then(s=>{
+let batch = db.batch();
+s.docs.forEach(doc=>batch.delete(doc.ref));
+batch.commit().then(()=>{
+notas=[];
+render();
+});
+});
+}
+
+// RENDER
+function render(){
+
+let header = `
+<tr>
+<th>UF</th><th>CHAVE</th><th>NUMERO</th>
+<th>RAZAO</th><th>VALOR</th>
+<th>SITUACAO</th><th>TIPO</th>
+<th>EMISSAO</th><th>PEDIDO</th>
+<th>RECEBIDO</th><th>SAP</th>
+</tr>`;
+
+tabela.innerHTML = header;
+tabelaRecebidas.innerHTML = header;
+
+notas.forEach(n=>{
+
+let cls="";
+if(n.recebido==="SIM") cls="recebidoOK";
+else if(n.sap==="SIM") cls="sapOK";
+else if(n.situacao?.toUpperCase().includes("CANCELADA")) cls="cancelada";
+else if(n.tipo?.toUpperCase().includes("ENTRADA")) cls="entrada";
+
+let linha = `
+<tr class="${cls}">
+<td>${n.uf||""}</td>
+<td>${n.chave}</td>
+<td>${n.numero}</td>
+<td>${n.razaoEmit}</td>
+<td>${n.valor}</td>
+<td>${n.situacao}</td>
+<td>${n.tipo}</td>
+<td>${formatarData(n.emissao)}</td>
+<td>${n.pedido||""}</td>
+<td>${n.recebido}</td>
+<td>${n.sap}</td>
+</tr>`;
+
+if(n.statusTela==="recebidas") tabelaRecebidas.innerHTML += linha;
+else tabela.innerHTML += linha;
+
+});
+}
+
+</script>
+</body>
+</html>
