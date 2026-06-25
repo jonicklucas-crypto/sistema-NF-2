@@ -4,10 +4,7 @@
 <meta charset="UTF-8">
 <title>Sistema NF Profissional</title>
 
-<!-- ✅ XLSX CORRETO -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-
-<!-- ✅ FIREBASE CORRETO -->
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
@@ -56,13 +53,11 @@ th, td { padding:6px; border:1px solid #ddd; white-space:nowrap; }
 
 <div id="notas">
 <h2>Notas Fiscais</h2>
-
+<div id="contador"></div>
 <input id="busca" onkeyup="filtrar()" placeholder="Buscar">
-
 <input id="chaveApagar" placeholder="Chave para apagar">
 <button onclick="apagarUma()">Apagar Nota</button>
 <button onclick="apagarTudo()">Apagar Todas</button>
-
 <table id="tabela"></table>
 </div>
 
@@ -102,42 +97,32 @@ th, td { padding:6px; border:1px solid #ddd; white-space:nowrap; }
 </div>
 
 <script>
-
 const firebaseConfig = {
   apiKey: "AIzaSyCs61LRkdUTqeFv_qJvTb5vc1h8qwI5yYQ",
   authDomain: "sistemanf.firebaseapp.com",
-  databaseURL: "https://sistemanf-default-rtdb.firebaseio.com",
   projectId: "sistemanf",
-  storageBucket: "sistemanf.firebasestorage.app",
+  storageBucket: "sistemanf.appspot.com",
   messagingSenderId: "87632051913",
   appId: "1:87632051913:web:438fc247703c2fb8915718"
 };
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
-
 let notas = [];
 
-// ✅ FORMATAR DATA
 function formatarData(data){
 if(!data) return "";
 let d = new Date(data);
-if(!isNaN(data)){
-d = new Date((data - 25569) * 86400 * 1000);
-}
-return `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;
+if(!isNaN(data)) d = new Date((data - 25569) * 86400 * 1000);
+return new Date(d.getTime() + (d.getTimezoneOffset()*60000)).toLocaleDateString('pt-BR');
 }
 
-// SALVAR
 function autoSalvar(){
 let batch = db.batch();
-notas.forEach(n=>{
-batch.set(db.collection("notas").doc(n.chave), n);
-});
+notas.forEach(n=> batch.set(db.collection("notas").doc(n.chave), n));
 batch.commit();
 }
 
-// LOGIN
 function entrar(){
 firebase.auth().signInWithEmailAndPassword(user.value, pass.value)
 .then(()=>{
@@ -155,7 +140,6 @@ loginTela.style.display="flex";
 });
 }
 
-// TELAS
 function tela(t){
 ["notas","recebidas","receb","sap","excel"].forEach(x=>{
 document.getElementById(x).style.display="none";
@@ -163,7 +147,6 @@ document.getElementById(x).style.display="none";
 document.getElementById(t).style.display="block";
 }
 
-// CARREGAR
 function carregar(){
 db.collection("notas").get().then(s=>{
 notas = s.docs.map(d=>d.data());
@@ -171,153 +154,8 @@ render();
 });
 }
 
-// ✅ IMPORTAR (CORRIGIDO)
-function importar(){
-let f=file.files[0];
-if(!f) return alert("Selecione arquivo");
+function buscar(c){ return notas.find(n=>n.chave===c); }
 
-let r=new FileReader();
-r.onload=e=>{
-let wb=XLSX.read(e.target.result,{type:'binary'});
-
-// ✅ CORRETO
-let data = XLSX.utils.sheet_to_json(
-wb.Sheets[wb.SheetNames[0]],
-{header:1}
-);
-
-data.forEach((l,i)=>{
-if(i===0||!l[1]) return;
-
-let chave = String(l[1]).replace(/[^0-9]/g,"").trim();
-
-let existente = notas.find(n=>n.chave===chave);
-
-if(existente){
-    existente.uf=l[0];
-    existente.numero=l[2];
-    existente.emissao=l[4];
-    existente.razaoEmit=l[7];
-    existente.valor=l[15];
-    existente.situacao=l[13];
-    existente.tipo=l[14];
-    return;
-}
-
-// nova nota
-notas.push({
-uf:l[0],
-chave,
-numero:l[2],
-emissao:l[4],
-razaoEmit:l[7],
-valor:l[15],
-situacao:l[13],
-tipo:l[14],
-recebido:"NAO",
-sap:"NAO",
-statusTela:"notas"
-});
-
-});
-
-autoSalvar();
-render();
-alert("✅ Importação concluída");
-};
-
-r.readAsBinaryString(f);
-}
-
-// BUSCAR
-function buscar(c){
-return notas.find(n=>n.chave===c);
-}
-
-// ✅ RECEBIMENTO
-function confirmarReceb(){
-let n = buscar(chaveReceb.value);
-if(!n) return alert("Nota não encontrada");
-
-if(n.recebido==="SIM") return alert("Já recebida");
-
-if(!pedidoReceb.value){
-if(!confirm("Sem pedido, continuar?")) return;
-}
-
-let rep = notas.find(x=>x.pedido===pedidoReceb.value && x.chave!==n.chave);
-if(rep){
-if(!confirm(`Pedido já existe na nota ${rep.numero}, continuar?`)) return;
-}
-
-if(!confirm("Confirmar recebimento?")) return;
-
-n.recebido="SIM";
-n.statusTela="recebidas";
-n.pedido=pedidoReceb.value;
-
-autoSalvar();
-render();
-}
-
-// ✅ ESTORNAR RECEBIMENTO
-function estornarReceb(){
-let n=buscar(chaveReceb.value);
-if(!n) return;
-
-if(!confirm("Estornar recebimento?")) return;
-
-n.recebido="NAO";
-n.statusTela="notas";
-n.pedido="";
-
-autoSalvar();
-render();
-}
-
-// ✅ SAP
-function confirmarSAP(){
-let n=buscar(chaveSAP.value);
-if(!n) return;
-
-if(!confirm("Confirmar envio para SAP?")) return;
-
-n.sap="SIM";
-autoSalvar();
-render();
-}
-
-function estornarSAP(){
-let n=buscar(chaveSAP.value);
-if(!n) return;
-
-if(!confirm("Estornar SAP?")) return;
-
-n.sap="NAO";
-autoSalvar();
-render();
-}
-
-// BUSCAS
-function buscarReceb(){
-let n=buscar(chaveReceb.value);
-if(n){
-numReceb.value=n.numero||"";
-razaoReceb.value=n.razaoEmit||"";
-valorReceb.value=n.valor||"";
-}
-}
-
-function buscarSAP(){
-let n=buscar(chaveSAP.value);
-if(n){
-numSAP.value=n.numero||"";
-razaoSAP.value=n.razaoEmit||"";
-valorSAP.value=n.valor||"";
-}
-}
-
-// FILTRO
 function filtrar(){
 let t=busca.value.toLowerCase();
 document.querySelectorAll("#tabela tr").forEach((l,i)=>{
@@ -326,12 +164,79 @@ l.style.display=l.innerText.toLowerCase().includes(t)?"":"none";
 });
 }
 
-// ✅ APAGAR UMA
-function apagarUma(){
-let chave = chaveApagar.value;
-if(!chave) return alert("Digite a chave");
+/* RECEBIMENTO */
+function buscarReceb(){
+let n = buscar(chaveReceb.value);
+if(!n) return;
+numReceb.value = n.numero||"";
+razaoReceb.value = n.razaoEmit||"";
+valorReceb.value = n.valor||"";
+}
 
-if(!confirm("Apagar esta nota?")) return;
+function confirmarReceb(){
+let n = buscar(chaveReceb.value);
+if(!n) return alert("Nota não encontrada");
+
+if(n.recebido==="SIM") return alert("Nota já recebida");
+
+if(!pedidoReceb.value)
+if(!confirm("Nota sem pedido, deseja continuar?")) return;
+
+let dup = notas.find(x=> x.pedido===pedidoReceb.value && x.chave!==n.chave);
+
+if(dup)
+if(!confirm(`Pedido encontra-se na nota ${dup.numero}, deseja continuar?`)) return;
+
+n.recebido="SIM";
+n.statusTela="recebidas";
+n.pedido=pedidoReceb.value||"";
+
+autoSalvar(); render();
+}
+
+function estornarReceb(){
+let n = buscar(chaveReceb.value);
+if(!n) return;
+
+n.recebido="NAO";
+n.statusTela="notas";
+n.pedido="";
+
+autoSalvar(); render();
+}
+
+/* SAP */
+function buscarSAP(){
+let n = buscar(chaveSAP.value);
+if(!n) return;
+numSAP.value = n.numero||"";
+razaoSAP.value = n.razaoEmit||"";
+valorSAP.value = n.valor||"";
+}
+
+function confirmarSAP(){
+let n = buscar(chaveSAP.value);
+if(!n) return alert("Nota não encontrada");
+
+if(n.sap==="SIM") return alert("Nota já no SAP");
+
+n.sap="SIM";
+
+autoSalvar(); render();
+}
+
+function estornarSAP(){
+let n = buscar(chaveSAP.value);
+if(!n) return;
+
+n.sap="NAO";
+
+autoSalvar(); render();
+}
+
+function apagarUma(){
+let chave = chaveApagar.value.trim();
+if(!chave) return;
 
 notas = notas.filter(n=>n.chave!==chave);
 db.collection("notas").doc(chave).delete();
@@ -339,21 +244,19 @@ db.collection("notas").doc(chave).delete();
 render();
 }
 
-// ✅ APAGAR TODAS
 function apagarTudo(){
-if(!confirm("Apagar TODAS as notas?")) return;
-
-db.collection("notas").get().then(s=>{
 let batch = db.batch();
-s.docs.forEach(doc=>batch.delete(doc.ref));
-batch.commit().then(()=>{
+
+notas.forEach(n=>{
+batch.delete(db.collection("notas").doc(n.chave));
+});
+
+batch.commit();
 notas=[];
 render();
-});
-});
 }
 
-// RENDER
+/* RENDER FINAL (COM TODAS AS CORES) */
 function render(){
 
 let header = `
@@ -361,8 +264,8 @@ let header = `
 <th>UF</th><th>CHAVE</th><th>NUMERO</th>
 <th>RAZAO</th><th>VALOR</th>
 <th>SITUACAO</th><th>TIPO</th>
-<th>EMISSAO</th><th>PEDIDO</th>
-<th>RECEBIDO</th><th>SAP</th>
+<th>EMISSAO</th>
+<th>PEDIDO</th><th>RECEBIDO</th><th>SAP</th>
 </tr>`;
 
 tabela.innerHTML = header;
@@ -371,10 +274,12 @@ tabelaRecebidas.innerHTML = header;
 notas.forEach(n=>{
 
 let cls="";
-if(n.recebido==="SIM") cls="recebidoOK";
-else if(n.sap==="SIM") cls="sapOK";
-else if(n.situacao?.toUpperCase().includes("CANCELADA")) cls="cancelada";
-else if(n.tipo?.toUpperCase().includes("ENTRADA")) cls="entrada";
+
+if(n.situacao?.toUpperCase().includes("CANCELADA")) cls+=" cancelada";
+else if(n.tipo?.toUpperCase().includes("ENTRADA")) cls+=" entrada";
+
+if(n.recebido==="SIM") cls+=" recebidoOK";
+if(n.sap==="SIM") cls+=" sapOK";
 
 let linha = `
 <tr class="${cls}">
@@ -387,16 +292,18 @@ let linha = `
 <td>${n.tipo}</td>
 <td>${formatarData(n.emissao)}</td>
 <td>${n.pedido||""}</td>
-<td>${n.recebido}</td>
-<td>${n.sap}</td>
+<td>${n.recebido||"NAO"}</td>
+<td>${n.sap||"NAO"}</td>
 </tr>`;
 
-if(n.statusTela==="recebidas") tabelaRecebidas.innerHTML += linha;
-else tabela.innerHTML += linha;
+if(n.statusTela==="recebidas")
+tabelaRecebidas.innerHTML += linha;
+else
+tabela.innerHTML += linha;
 
 });
-}
 
+}
 </script>
 </body>
 </html>
